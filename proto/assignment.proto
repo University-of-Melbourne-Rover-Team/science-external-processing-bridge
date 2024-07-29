@@ -1,0 +1,25 @@
+syntax = "proto3";
+
+enum DevKind {
+  A = 0;
+  DevAck = 1;
+  HostAck = 2;
+
+  MotorDriver = 3;
+  CamGimball = 4;
+  Science = 5;
+  Battery = 6;
+  ArmTelem = 7;
+  DebrisClear = 8;
+  ChasisLights = 9;
+}
+
+message Assignment {
+  DevKind asn = 1;
+}
+
+
+message Payload {
+  int32 temperature = 1;
+  uint32 acceleration = 2;
+}
