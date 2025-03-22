@@ -1,7 +1,12 @@
 #include "generated/assignment.h"
+#include "generated/processing.h"
 #include <WriteBufferFixedSize.h>
 #include <ReadBufferFixedSize.h>
 #include <Errors.h>
+#include <algorithm>
+
+#include <WiFi.h>
+#include <esp_now.h>>
 
 //NOTE: EmbeddedProtobuf needs to be added as a library for this to work
 //which the submodule needs to be cloned
@@ -16,16 +21,49 @@
 
 //idk what it is on windows. sorry!
 
-#define DEVKIND DevKind::Battery
+#define DEVKIND DevKind::ScienceExternal
+
+// sending these packets to every esp in range
+// hopefully this wont interfere with other teams...
+#define BROADCAST_ADDR {0xFF,0xFF,0xFF,0xFF,0xFF,0xFF}
+uint8_t sender_address[6] = BROADCAST_ADDR;
+
+esp_now_peer_info_t peerInfo {
+  .peer_addr = BROADCAST_ADDR,
+};
+
+
+void on_data_send(const uint8_t *mac_addr, esp_now_send_status_t status);
+void on_data_recv(const esp_now_recv_info *info, const uint8_t *data, int len);
+
+#define MAX_PKT_SIZE 128
+uint8_t transfer_buf[MAX_PKT_SIZE] = {0};
 
 void setup() {
   Serial.begin(115200);
+  WiFi.mode(WIFI_STA);
+
+  if (esp_now_init() != ESP_OK) {
+    return;
+  }
+
+  esp_now_register_send_cb(on_data_send);
+
+  peerInfo.channel = 0;
+  peerInfo.encrypt = false;
+
+  if (!esp_now_add_peer(&peerInfo)) {
+    return;
+  }
+  esp_now_register_recv_cb(on_data_recv);
+
   while (Serial.available() < 1) {}
   while (Serial.available() > 0) {
     Serial.read();
   }
   handshake(DEVKIND);
 }
+
 
 EmbeddedProto::WriteBufferFixedSize<10> write_buf;
 
@@ -43,7 +81,8 @@ void handshake(const DevKind& kind) {
   const auto len = write_buf.get_size();
   const auto bytes = write_buf.get_data();
 
-  EmbeddedProto::ReadBufferFixedSize<10> read_buf;
+  #define READ_BUF_SIZE 10
+  EmbeddedProto::ReadBufferFixedSize<READ_BUF_SIZE> read_buf;
   Assignment out;
 
   const auto ser_err = asn.serialize(write_buf);
@@ -58,7 +97,7 @@ void handshake(const DevKind& kind) {
       read_buf.clear();
 
       auto buf = read_buf.get_data();
-      const auto read = Serial.readBytes(read_buf.get_data(), available_bytes);
+      const auto read = Serial.readBytes(read_buf.get_data(), std::min(available_bytes, READ_BUF_SIZE));
       uint8_t err = 0;
       if(read != available_bytes) {
         err = 1;
@@ -109,7 +148,16 @@ void handshake(const DevKind& kind) {
   }
 }
 
-uint8_t v = 0;
+void on_data_send(const uint8_t *mac_addr, esp_now_send_status_t status) {
+  if (status != ESP_NOW_SEND_SUCCESS) {
+    uint8_t send_fail_bytes[1] = {1};
+    Serial.write(send_fail_bytes, 1);
+  }
+}
+
+void on_data_recv(const esp_now_recv_info *info, const uint8_t *data, int len) {
+  Serial.write(data, len);
+}
 
 void loop() {
   const auto available_bytes = Serial.available();
@@ -119,12 +167,8 @@ void loop() {
       return;
     }
 
-    // do input processing here
+    const auto read = Serial.readBytes(transfer_buf, std::min(available_bytes, MAX_PKT_SIZE));
+    esp_now_send(sender_address, transfer_buf, read);
   }
-
-  // const auto bytes = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
-
-
-  Serial.write(&v, 1);
   delay(10);
 }
