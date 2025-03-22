@@ -159,6 +159,8 @@ void on_data_recv(const esp_now_recv_info *info, const uint8_t *data, int len) {
   Serial.write(data, len);
 }
 
+size_t last_msg_size = 0;
+
 void loop() {
   const auto available_bytes = Serial.available();
   if (available_bytes > 0) {
@@ -167,8 +169,10 @@ void loop() {
       return;
     }
 
-    const auto read = Serial.readBytes(transfer_buf, std::min(available_bytes, MAX_PKT_SIZE));
-    esp_now_send(sender_address, transfer_buf, read);
+    last_msg_size = Serial.readBytes(transfer_buf, std::min(available_bytes, MAX_PKT_SIZE));
+    esp_now_send(sender_address, transfer_buf, last_msg_size);
+  } else if (last_msg_size > 0) {
+    esp_now_send(sender_address, transfer_buf, last_msg_size);
   }
   delay(10);
 }
